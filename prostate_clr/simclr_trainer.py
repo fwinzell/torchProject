@@ -20,7 +20,7 @@ import numpy as np
 torch.manual_seed(0)
 
 
-class SimCLR(object):
+class SimCLRTrainer(object):
 
     def __init__(self, config):
         self.config = config
@@ -112,8 +112,8 @@ class SimCLR(object):
                     # save the model weights
                     best_valid_loss = valid_loss
                     torch.save(self.model.state_dict(), os.path.join(self.config.save_dir,
-                                                                     'b_{}_model.pth'.format(
-                                                                         self.config["batch_size"])))
+                                                                     'simclr_{}_model.pth'.format(
+                                                                         self.config.batch_size)))
 
                 self.writer.add_scalar('validation_loss', valid_loss, global_step=valid_n_iter)
                 valid_n_iter += 1

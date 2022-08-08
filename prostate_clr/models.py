@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-from unet.unet_model import UNet, EncodingBlock, DecodingBlock
+from unet.unet_model import EncodingBlock, DecodingBlock
 
 
 class UnetSimCLR(nn.Module):
@@ -210,31 +210,30 @@ class Encoder(nn.Module):
         return x, encoder_output
 
 
-class Decoder(nn.Module):
+class Unet(nn.Module):
     def __init__(self,
-                 encoder,
                  config):
-        super(Decoder, self).__init__()
+        super(Unet, self).__init__()
 
-        self._encoder = encoder
+        self._encoder = Encoder(config)
         self._n_classes = config.num_classes
         self._depth = config.depth
 
-        self._decoder = []
+        self._decoder_layers = []
         num_filters_out = config.filters*2**config.depth
         # create decoder path
         for i in range(self._depth):
             num_filters_in = num_filters_out
             num_filters_out = num_filters_in // 2
 
-            self._decoder.append(DecodingBlock(in_channels=num_filters_in,
-                                               out_channels=num_filters_out,
-                                               ))
+            self._decoder_layers.append(DecodingBlock(in_channels=num_filters_in,
+                                                      out_channels=num_filters_out
+                                                      ))
 
         self._final_layer = nn.Conv2d(num_filters_out, self._n_classes, kernel_size=1, padding='same')
 
         # add the list of modules to current module
-        self._decoder = nn.ModuleList(self._decoder)
+        self._decoder = nn.ModuleList(self._decoder_layers)
         # initialize the weights
         self.initialize_parameters()
 
@@ -276,3 +275,79 @@ class Decoder(nn.Module):
                       '_' not in attr_key[0] and 'training' not in attr_key}
         d = {self.__class__.__name__: attributes}
         return f'{d}'
+
+
+class MLP(nn.Module):
+    def __init__(self, input_channels=512, num_class=128):
+        super().__init__()
+
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.f1 = nn.Linear(input_channels, input_channels)
+        self.f2 = nn.Linear(input_channels, num_class)
+
+    def forward(self, x):
+        x = self.gap(x)
+        y = self.f1(x.squeeze())
+        y = self.f2(y)
+
+        return y
+
+
+class LocalUnet(nn.Module):
+    def __init__(self,
+                 config):
+        super(LocalUnet, self).__init__()
+
+        self._encoder = Encoder(config)
+
+        if config.n_decoder_blocks > config.depth:
+            print('Cannot have more decoding blocks than depth, setting to max')
+            config.n_decoder_blocks = config.depth
+
+        self._decoder_layers = []
+        num_filters_out = config.filters * 2 ** config.depth
+        # create decoder path
+        for i in range(config.n_decoder_blocks):
+            num_filters_in = num_filters_out
+            num_filters_out = num_filters_in // 2
+
+            self._decoder_layers.append(DecodingBlock(in_channels=num_filters_in,
+                                                      out_channels=num_filters_out
+                                                      ))
+
+        self._decoder = nn.ModuleList(self._decoder_layers)
+
+    def freeze_encoder(self):
+        # Freeze encoder
+        for param in self._encoder.parameters():
+            param.requires_grad = False
+
+    def forward(self, x: torch.tensor):
+        # Encoder pathway
+        x, encoder_output = self._encoder(x)
+
+        # Decoder pathway
+        for i, module in enumerate(self._decoder):
+            residual = encoder_output[-(i + 2)]
+            x = module(x, residual)
+
+        return x
+
+
+class CNN(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        self.g1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, bias=False)
+        self.relu = nn.ReLU()
+        self.bn = nn.BatchNorm2d(num_features=in_channels)
+        self.g2 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        y = self.g1(x)
+        y = self.relu(y)
+        y = self.bn(y)
+        y = self.g2(y)
+
+        return y
+

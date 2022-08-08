@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torchsummary import summary
 from models import Encoder
-from trainer import PreTrainer
+from trainers import PreTrainer
 from simclr.data import ContrastiveImageDataset, class_weights
 from unet.transformations import ComposeSingle, FunctionWrapperSingle, normalize_01, one_hot_target
 from visual import plot_training_opt
