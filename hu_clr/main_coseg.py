@@ -19,7 +19,8 @@ from util import adjust_learning_rate, warmup_learning_rate
 from util import save_model
 from util import get_gpu_memory_map
 from networks.unet_con import SupConUnet, LocalConUnet2, LocalConUnet3
-from loss_functions.supcon_loss import SupConSegLoss, LocalConLoss, BlockConLoss
+from loss_functions.supcon_loss import SupConSegLoss, LocalConLoss
+from prostate_clr.losses.supcon_loss import BlockConLoss
 
 from hu_clr.datasets.two_dim.ProstateImageLoader import ProstateDataset, load_img_paths, load_img_and_target_paths
 from hu_clr.datasets.transformations import *
@@ -51,8 +52,9 @@ def parse_option():
                         help='head mode, cls or mlp')
     parser.add_argument('--stride', type=int, default=4,
                         help='number of stride when doing downsampling')
-    parser.add_argument('--mode', type=str, default="stride",
+    parser.add_argument('--mode', type=str, default="block",
                         help='how to downsample the feature maps, stride or block')
+    parser.add_argument('--block_size', type=int, default=8)
 
 
     # optimization

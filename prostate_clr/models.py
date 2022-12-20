@@ -3,6 +3,20 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 from unet.unet_model import EncodingBlock, DecodingBlock
+from prettytable import PrettyTable
+
+
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        params = parameter.numel()
+        table.add_row([name, params])
+        total_params += params
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
 
 
 class UnetSimCLR(nn.Module):
@@ -172,9 +186,9 @@ class Encoder(nn.Module):
     def __init__(self, config):
         super(Encoder, self).__init__()
 
-        self._input_dim = config.input_dim
+        self._input_dim = config.input_shape
         self._depth = config.depth
-        self._start_filters = config.filters
+        self._start_filters = config.start_filters
 
         self._encoder_layers = []
 
@@ -182,7 +196,7 @@ class Encoder(nn.Module):
         num_filters_out = self._start_filters
         for i in range(self._depth):
             if i == 0:
-                num_filters_in = self._input_dim[-1]
+                num_filters_in = self._input_dim[0]
             else:
                 num_filters_in = num_filters_out
                 num_filters_out *= 2
@@ -212,17 +226,19 @@ class Encoder(nn.Module):
 
 class Unet(nn.Module):
     def __init__(self,
-                 config):
+                 config,
+                 load_pt_weights=True):
         super(Unet, self).__init__()
 
-        self._encoder = Encoder(config)
-        self._n_classes = config.num_classes
-        self._depth = config.depth
+        self.encoder = Encoder(config)
+        self.n_classes = config.num_classes
+        self.depth = config.depth
+        self.n_pt_dec_blocks = config.no_of_pt_decoder_blocks
 
         self._decoder_layers = []
-        num_filters_out = config.filters*2**config.depth
+        num_filters_out = config.start_filters*2**config.depth
         # create decoder path
-        for i in range(self._depth):
+        for i in range(self.depth):
             num_filters_in = num_filters_out
             num_filters_out = num_filters_in // 2
 
@@ -230,10 +246,24 @@ class Unet(nn.Module):
                                                       out_channels=num_filters_out
                                                       ))
 
-        self._final_layer = nn.Conv2d(num_filters_out, self._n_classes, kernel_size=1, padding='same')
+        self.final_layer = nn.Conv2d(num_filters_out, self.n_classes, kernel_size=1, padding='same')
 
-        # add the list of modules to current module
-        self._decoder = nn.ModuleList(self._decoder_layers)
+        #self._pt_decoder = nn.ModuleList(self._decoder_layers[:self.n_pt_dec_blocks])
+        self.decoder = nn.ModuleList(self._decoder_layers)
+
+        #if load_pt_weights:
+            # Load pre-trained weights
+        #    state_dict = torch.load(config.pretrained_model_path)
+            # If strict=True then keys of state_dict must match keys of model
+        #    self._encoder.load_state_dict(state_dict, strict=False)
+            # Freeze
+        #    self._encoder.requires_grad_(False)
+            # Pretrained decoder
+        #    if self.n_pt_dec_blocks != 0:
+        #        self._pt_decoder.load_state_dict(state_dict, strict=False)
+        #        self._pt_decoder.requires_grad_(False)
+
+
         # initialize the weights
         self.initialize_parameters()
 
@@ -253,20 +283,24 @@ class Unet(nn.Module):
                               kwargs_weights={},
                               kwargs_bias={}
                               ):
-        for module in self._decoder:
+        for module in self.decoder:
             self.weight_init(module, method_weights, **kwargs_weights)  # initialize weights
             self.bias_init(module, method_bias, **kwargs_bias)  # initialize bias
 
     def forward(self, x: torch.tensor):
         # Encoder pathway
-        x, encoder_output = self._encoder(x)
+        x, encoder_output = self.encoder(x)
 
         # Decoder pathway
-        for i, module in enumerate(self._decoder):
+        for i, module in enumerate(self.decoder):
             residual = encoder_output[-(i + 2)]
             x = module(x, residual)
 
-        x = self._final_layer(x)
+        #for j, module in enumerate(self._decoder):
+        #    residual = encoder_output[-(self.n_pt_dec_blocks + j + 2)]
+        #    x = module(x, residual)
+
+        x = self.final_layer(x)
 
         return x
 
@@ -295,19 +329,23 @@ class MLP(nn.Module):
 
 class LocalUnet(nn.Module):
     def __init__(self,
-                 config):
+                 config,
+                 load_pt_encoder=True):
         super(LocalUnet, self).__init__()
 
-        self._encoder = Encoder(config)
+        self.encoder = Encoder(config)
+        #if load_pt_encoder:
+        #    state_dict = torch.load(config.pretrained_model_path)
+        #    self._encoder.load_state_dict(state_dict, strict=True)
 
-        if config.n_decoder_blocks > config.depth:
+        if config.no_of_decoder_blocks > config.depth:
             print('Cannot have more decoding blocks than depth, setting to max')
-            config.n_decoder_blocks = config.depth
+            config.no_of_decoder_blocks = config.depth
 
         self._decoder_layers = []
-        num_filters_out = config.filters * 2 ** config.depth
+        num_filters_out = config.start_filters * 2**config.depth
         # create decoder path
-        for i in range(config.n_decoder_blocks):
+        for i in range(config.no_of_decoder_blocks):
             num_filters_in = num_filters_out
             num_filters_out = num_filters_in // 2
 
@@ -315,19 +353,14 @@ class LocalUnet(nn.Module):
                                                       out_channels=num_filters_out
                                                       ))
 
-        self._decoder = nn.ModuleList(self._decoder_layers)
-
-    def freeze_encoder(self):
-        # Freeze encoder
-        for param in self._encoder.parameters():
-            param.requires_grad = False
+        self.decoder = nn.ModuleList(self._decoder_layers)
 
     def forward(self, x: torch.tensor):
         # Encoder pathway
-        x, encoder_output = self._encoder(x)
+        x, encoder_output = self.encoder(x)
 
         # Decoder pathway
-        for i, module in enumerate(self._decoder):
+        for i, module in enumerate(self.decoder):
             residual = encoder_output[-(i + 2)]
             x = module(x, residual)
 
@@ -351,3 +384,51 @@ class CNN(nn.Module):
 
         return y
 
+
+class UnetInfer(nn.Module):
+    def __init__(self,
+                 config):
+        super(UnetInfer, self).__init__()
+
+        self._encoder = Encoder(config)
+        self.n_classes = config.num_classes
+        self.depth = config.depth
+
+        self._decoder_layers = []
+        num_filters_out = config.start_filters*2**config.depth
+        # create decoder path
+        for i in range(self.depth):
+            num_filters_in = num_filters_out
+            num_filters_out = num_filters_in // 2
+
+            self._decoder_layers.append(DecodingBlock(in_channels=num_filters_in,
+                                                      out_channels=num_filters_out
+                                                      ))
+
+        self._final_layer = nn.Conv2d(num_filters_out, self.n_classes, kernel_size=1, padding='same')
+        self._decoder = nn.ModuleList(self._decoder_layers)
+
+        # Load pre-trained weights
+        state_dict = torch.load(config.model_path)
+        # If strict=True then keys of state_dict must match keys of model
+        self._encoder.load_state_dict(state_dict, strict=False)
+        self._decoder.load_state_dict(state_dict, strict=False)
+        self._final_layer.load_state_dict(state_dict, strict=False)
+
+    def forward(self, x: torch.tensor):
+        # Encoder pathway
+        x, encoder_output = self._encoder(x)
+
+        # Decoder pathway
+        for i, module in enumerate(self._decoder):
+            residual = encoder_output[-(i + 2)]
+            x = module(x, residual)
+
+        x = self._final_layer(x)
+        return x
+
+    def __repr__(self):
+        attributes = {attr_key: self.__dict__[attr_key] for attr_key in self.__dict__.keys() if
+                      '_' not in attr_key[0] and 'training' not in attr_key}
+        d = {self.__class__.__name__: attributes}
+        return f'{d}'

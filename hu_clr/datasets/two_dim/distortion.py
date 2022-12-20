@@ -23,6 +23,12 @@ def random_crop_and_resize(img, tar=None, p=0.8):
     return img, tar
 
 
+def hs_distortion(img, sat=(0.6, 1.8), hue=0.05, prob=1.0):
+    hs = transforms.ColorJitter(saturation=sat, hue=hue)
+    applier = transforms.RandomApply(nn.ModuleList([hs]), p=prob)
+    return applier(img)
+
+
 def color_distortion(img, s=1.0, prob=0.8):
     color_jitter = transforms.ColorJitter(brightness=0.8*s, contrast=0.8*s, saturation=0.8*s, hue=0.2*s)
     # random_crop = transforms.RandomResizedCrop(size=image.shape[-2:], scale=(0.05, 1.0))

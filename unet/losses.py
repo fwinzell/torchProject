@@ -11,12 +11,12 @@ class GeneralizedDiceLoss(nn.Module):
         self.epsilon = epsilon
 
     def forward(self, input, target):
-        pred = F.softmax(input)
-        N = input.shape[0] # batch size
-        K = len(self.labels) # number of classes
+        pred = F.softmax(input, dim=1)
+        N = input.shape[0]  # batch size
+        K = len(self.labels)  # number of classes
         w = torch.zeros(K).cuda()
         for k, l in enumerate(self.labels):
-            w[k] = 1 / (torch.sum(target[:,k,:,:]) ** 2 + self.epsilon)
+            w[k] = 1 / (torch.sum(target[:, k, :, :]) ** 2 + self.epsilon)
 
         # flatten prediction and target arrays
         pred = pred.view(N, K, -1)
@@ -29,8 +29,9 @@ class GeneralizedDiceLoss(nn.Module):
         denominator = (pred + target).sum(-1)
         denominator = (w * denominator).clamp(min=self.epsilon)
 
-        gdl = 1 - 2 * torch.sum(intersection)/torch.sum(denominator)
+        gdl = 1 - 2 * torch.sum(intersection) / torch.sum(denominator)
         return gdl
+
 
 class ShitDiceLoss(nn.Module):
     def __init__(self, labels, epsilon=0.001):
@@ -46,10 +47,10 @@ class ShitDiceLoss(nn.Module):
             y_true = torch.zeros_like(target)
             y_true[target == l] = 1
             w = 1 / (torch.sum(y_true) ** 2 + self.epsilon)
-            num[k] = w * torch.sum(torch.mul(pred,y_true))
-            den[k] = w * torch.sum(torch.add(pred,y_true))
+            num[k] = w * torch.sum(torch.mul(pred, y_true))
+            den[k] = w * torch.sum(torch.add(pred, y_true))
 
-        gdl = 1 - 2 * torch.sum(num)/torch.sum(den)
+        gdl = 1 - 2 * torch.sum(num) / torch.sum(den)
         return gdl
 
     def _with_numpy(self, input, target):
@@ -57,14 +58,14 @@ class ShitDiceLoss(nn.Module):
         pred = F.softmax(input)
         num = np.zeros(len(self.labels))
         den = np.zeros(len(self.labels))
-        for k,l in enumerate(self.labels):
+        for k, l in enumerate(self.labels):
             y_true = np.zeros_like(target)
             y_true[target == l] = 1
-            w = 1/(np.sum(y_true)**2 + self.epsilon)
-            num[k] = w*np.sum(pred*y_true)
-            den[k] = w*(np.sum(pred+y_true))
+            w = 1 / (np.sum(y_true) ** 2 + self.epsilon)
+            num[k] = w * np.sum(pred * y_true)
+            den[k] = w * (np.sum(pred + y_true))
 
-        gdl = 1 - 2*np.sum(num)/np.sum(den)
+        gdl = 1 - 2 * np.sum(num) / np.sum(den)
         return gdl
 
 
@@ -76,11 +77,11 @@ class MaxDiceLoss(nn.Module):
 
     def forward(self, input, target):
         pred = F.softmax(input)
-        N = input.shape[0] # batch size
-        K = len(self.labels) # number of classes
+        N = input.shape[0]  # batch size
+        K = len(self.labels)  # number of classes
         w = torch.zeros(K).cuda()
         for k, l in enumerate(self.labels):
-            w[k] = 1 / (torch.sum(target[:,k,:,:]) ** 2 + self.epsilon)
+            w[k] = 1 / (torch.sum(target[:, k, :, :]) ** 2 + self.epsilon)
 
         # flatten prediction and target arrays
         pred = pred.view(N, K, -1)
@@ -93,8 +94,9 @@ class MaxDiceLoss(nn.Module):
         denominator = (pred + target).sum(-1)
         denominator = (w * denominator).clamp(min=self.epsilon)
 
-        gdl = 1 - 2 * intersection/denominator
+        gdl = 1 - 2 * intersection / denominator
         return torch.max(gdl)
+
 
 class ShitDiceLoss(nn.Module):
     def __init__(self, labels, epsilon=0.001):
@@ -110,10 +112,10 @@ class ShitDiceLoss(nn.Module):
             y_true = torch.zeros_like(target)
             y_true[target == l] = 1
             w = 1 / (torch.sum(y_true) ** 2 + self.epsilon)
-            num[k] = w * torch.sum(torch.mul(pred,y_true))
-            den[k] = w * torch.sum(torch.add(pred,y_true))
+            num[k] = w * torch.sum(torch.mul(pred, y_true))
+            den[k] = w * torch.sum(torch.add(pred, y_true))
 
-        gdl = 1 - 2 * torch.sum(num)/torch.sum(den)
+        gdl = 1 - 2 * torch.sum(num) / torch.sum(den)
         return gdl
 
     def _with_numpy(self, input, target):
@@ -121,16 +123,15 @@ class ShitDiceLoss(nn.Module):
         pred = F.softmax(input)
         num = np.zeros(len(self.labels))
         den = np.zeros(len(self.labels))
-        for k,l in enumerate(self.labels):
+        for k, l in enumerate(self.labels):
             y_true = np.zeros_like(target)
             y_true[target == l] = 1
-            w = 1/(np.sum(y_true)**2 + self.epsilon)
-            num[k] = w*np.sum(pred*y_true)
-            den[k] = w*(np.sum(pred+y_true))
+            w = 1 / (np.sum(y_true) ** 2 + self.epsilon)
+            num[k] = w * np.sum(pred * y_true)
+            den[k] = w * (np.sum(pred + y_true))
 
-        gdl = 1 - 2*np.sum(num)/np.sum(den)
+        gdl = 1 - 2 * np.sum(num) / np.sum(den)
         return gdl
-
 
 
 class DiceLoss(nn.Module):

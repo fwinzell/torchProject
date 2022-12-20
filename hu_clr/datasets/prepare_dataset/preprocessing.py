@@ -1,5 +1,5 @@
 from collections import defaultdict
-from batchgenerators.augmentations.utils import resize_image_by_padding
+#from batchgenerators.augmentations.utils import resize_image_by_padding
 
 from medpy.io import load
 import os
@@ -39,7 +39,7 @@ def preprocess_data(root_dir):
             print(label.min())
             total += image.shape[2]
 
-            image = image[:, :, 0].transpose((0, 2, 1))
+            #image = np.expand_dims(image[:, :, 0], axis=-1).transpose((0, 2, 1))
 
             """
             # modify the label for MMWHS dataset
@@ -137,13 +137,13 @@ def subfiles(folder, join=True, prefix=None, suffix=None, sort=True):
 
 
 if __name__ == "__main__":
-    root_dir = "../../data/Hippocampus"
+    root_dir = "/home/fi5666wi/Documents/Task04_Hippocampus"  # "../../data/Hippocampus"
     input_dir = "../../data/Hippocampus/orig"
     target_dir = "../../data/Hippocampus/preprocessed"
 
     preprocess_data(root_dir)
 
-    reshape_2d_data(input_dir, target_dir)
+    #reshape_2d_data(input_dir, target_dir)
 
 
 

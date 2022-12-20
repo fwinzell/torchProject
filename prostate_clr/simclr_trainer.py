@@ -49,7 +49,8 @@ class SimCLRTrainer(object):
         self.model.to(self.device)
         self.head.to(self.device)
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), 3e-4, weight_decay=eval(self.config.weight_decay))
+        self.optimizer = torch.optim.Adam(self.model.parameters(), self.config.learning_rate,
+                                          weight_decay=self.config.weight_decay)
 
     def _get_device(self):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -59,11 +60,11 @@ class SimCLRTrainer(object):
     def _step(self, model, head, xis, xjs, n_iter):
 
         # get the representations and the projections
-        ris = model(xis)  # [N,C]
+        ris, _ = model(xis)  # [N,C], ignore encoder output (no skip connections)
         zis = head(ris)
 
         # get the representations and the projections
-        rjs = model(xjs)  # [N,C]
+        rjs, _ = model(xjs)  # [N,C], ignore encoder output (no skip connections)
         zjs = head(rjs)
 
         # normalize projection feature vectors
@@ -74,9 +75,6 @@ class SimCLRTrainer(object):
         return loss
 
     def train(self):
-
-        model_checkpoints_folder = os.path.join(self.writer.log_dir, 'checkpoints')
-
         n_iter = 0
         valid_n_iter = 0
         best_valid_loss = np.inf
@@ -112,8 +110,8 @@ class SimCLRTrainer(object):
                     # save the model weights
                     best_valid_loss = valid_loss
                     torch.save(self.model.state_dict(), os.path.join(self.config.save_dir,
-                                                                     'simclr_{}_model.pth'.format(
-                                                                         self.config.batch_size)))
+                                                                     'simclr_bs{}_d{}_model.pth'.format(
+                                                                         self.config.batch_size, self.config.depth)))
 
                 self.writer.add_scalar('validation_loss', valid_loss, global_step=valid_n_iter)
                 valid_n_iter += 1

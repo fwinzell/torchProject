@@ -26,8 +26,8 @@ parser.add_argument("--input_shape", nargs=3, type=int, default=[3, 256, 256])
 parser.add_argument("--depth", type=int, default=4)
 parser.add_argument("--start_filters", type=int, default=64)
 parser.add_argument("--model_path", type=str,
-                    default='/home/fi5666wi/Documents/Python/saved_models/prostate_clr/unet/2022-09-13'
-                            '/unet_best_4_model.pth')
+                    default='/home/fi5666wi/Documents/Python/saved_models/prostate_clr/unet/2022-10-03'
+                            '/unet_fold_3_best_4_model.pth')
 parser.add_argument("--no_of_pt_decoder_blocks", type=int, default=3)
 parser.add_argument("--imagenet", type=bool, default=False)
 parser.add_argument("--hu", type=bool, default=False)
@@ -103,64 +103,14 @@ def predict(img,
     return result
 
 
-def image_to_patches(image, size=256, overlap=10):
-    (ydim, xdim) = image.shape[:2]
-    step = size - overlap
-    nbr_xpatches = math.ceil(xdim / step)
-    nbr_ypatches = math.ceil(ydim / step)
-
-    patch_ds = np.empty(shape=(nbr_xpatches * nbr_ypatches, size, size, 3))
-    count = 0
-    coords = []
-    ycor = 0
-    for i in range(nbr_ypatches):
-        xcor = 0
-        for j in range(nbr_xpatches):
-            patch = image[ycor:ycor + size, xcor:xcor + size, :]
-            patch_ds[count] = patch
-            coords.append([ycor, xcor])
-            count += 1
-            xcor = xcor + step
-            if xcor > xdim - size:
-                xcor = xdim - size
-        ycor = ycor + step
-        if ycor > ydim - size:
-            ycor = ydim - size
-
-    return patch_ds
-
-
-def patches_to_image(ds, image_size, overlap=10):
-    image = np.zeros(shape=image_size)
-    sz = ds.shape[1]
-    step = sz - overlap
-    nbr_xpatches = math.ceil(image_size[1] / step)
-    nbr_ypatches = math.ceil(image_size[0] / step)
-    ycor = 0
-    count = 0
-    for i in range(nbr_ypatches):
-        xcor = 0
-        for j in range(nbr_xpatches):
-            image[ycor:ycor + sz, xcor:xcor + sz, :] = ds[count]
-            count += 1
-            xcor = xcor + step
-            if xcor > image_size[1] - sz:
-                xcor = image_size[1] - sz
-        ycor = ycor + step
-        if ycor > image_size[0] - sz:
-            ycor = image_size[0] - sz
-
-    return image
-
-
 def get_tiles(image, tile_sz=224, patch_sz=256):
     pad = int((patch_sz - tile_sz) / 2)
     # torch_img = torch.tensor((np.moveaxis(img, source=-1, destination=0)))
     padded = np.pad(image, pad_width=((pad, pad), (pad, pad), (0, 0)), mode='reflect')
 
     (ydim, xdim) = padded.shape[:2]
-    nbr_xpatches = math.ceil(xdim / tile_sz)
-    nbr_ypatches = math.ceil(ydim / tile_sz)
+    nbr_xpatches = math.ceil(image.shape[1] / tile_sz)
+    nbr_ypatches = math.ceil(image.shape[0] / tile_sz)
 
     tiles = np.empty(shape=(nbr_xpatches * nbr_ypatches, patch_sz, patch_sz, 3))
     count = 0
@@ -193,7 +143,18 @@ def tiling(tiles, image_shape, tile_sz=224, patch_sz=256):
     for i in range(nbr_ypatches):
         xcor = 0
         for j in range(nbr_xpatches):
+            t = tiles[count, pad:pad + tile_sz, pad:pad + tile_sz]
             image[ycor:ycor + tile_sz, xcor:xcor + tile_sz] = tiles[count, pad:pad + tile_sz, pad:pad + tile_sz]
+
+            """cv2.imshow('tile', ind2segment(t.astype(np.uint8)))
+            newim = ind2segment(image.astype(np.uint8))
+            cv2.rectangle(newim, (xcor, ycor), (xcor + tile_sz, ycor + tile_sz),
+                          color=(0, 0, 0), thickness=2)
+            newim = cv2.resize(newim, dsize=None, fx=0.25, fy=0.25)
+            cv2.imshow('image', newim)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()"""
+
             count += 1
             xcor = xcor + tile_sz
             if xcor > image_shape[1] - tile_sz:
@@ -203,51 +164,6 @@ def tiling(tiles, image_shape, tile_sz=224, patch_sz=256):
             ycor = image_shape[0] - tile_sz
 
     return image
-
-
-def colors_to_labels(img):
-    label_mask = np.zeros(shape=img.shape[:2], dtype='float32')
-    for j, label_name in enumerate(color_dict):
-        index = np.where(np.all(color_dict[label_name] == img, axis=2))
-        label_mask[index] = float(j)
-    return label_mask
-
-
-def one_hot_target(tar):
-    classes = np.unique(tar)
-    hot_target = np.zeros(shape=(config.num_classes, tar.shape[0], tar.shape[1]))
-    for k in classes:
-        bw = np.where(tar == k, 1, 0)
-        hot_target[int(k), :, :] = bw
-    return hot_target
-
-
-def dice(pred, gt, get_mean=False):
-    labels = np.array(range(config.num_classes))
-    scores = np.zeros(len(labels))
-    for i, l in enumerate(labels):
-        y_pred = np.zeros_like(pred)
-        y_pred[pred == l] = 1
-        y_true = np.zeros_like(gt)
-        y_true[gt == l] = 1
-        scores[i] = single_dice_coef(y_true, y_pred)
-
-    if get_mean:
-        return np.mean(scores)
-    else:
-        return scores
-
-
-def single_dice_coef(y_true, y_pred_bin):
-    intersection = np.sum(y_true * y_pred_bin)
-    if (np.sum(y_true) == 0) and (np.sum(y_pred_bin) == 0):
-        return 1
-    return (2 * intersection) / (np.sum(y_true) + np.sum(y_pred_bin))
-
-
-def test_loss_function(pred, gt, loss_fn=GeneralizedDiceLoss(labels=np.array(range(config.num_classes)))):
-    loss_val = loss_fn(torch.tensor(pred).cuda(), torch.tensor(gt).cuda())
-    return loss_val
 
 
 if __name__ == '__main__':
@@ -273,89 +189,30 @@ if __name__ == '__main__':
         model.load_state_dict(model_weights, strict=True)
 
     # Image to segment
-    eval_path = '/home/fi5666wi/Documents/Prostate images/Eval'  # '/usr/matematik/fi5666wi/Documents/Datasets/Eval'
-    image_paths = [os.path.join(eval_path, 'image_slic/cropped_image_slic.png'),
-                   os.path.join(eval_path, 'image_5/cropped_image_5.png'),
-                   os.path.join(eval_path, 'image_4/cropped_image10PM 30316-7_10x.png')]
-    if config.num_classes == 4:
-        gt_paths = [os.path.join(eval_path, 'image_slic/cropped_image_slic-annotated.png'),
-                    os.path.join(eval_path, 'image_5/cropped_image_5-annotated.png'),
-                    os.path.join(eval_path, 'image_4/cropped_image_4-annotated.png')]
-    else:
-        gt_paths = [os.path.join(eval_path, 'image_slic/cropped_image_slic-annotated_3c.png'),
-                    os.path.join(eval_path, 'image_5/cropped_image_5-annotated_3c.png'),
-                    os.path.join(eval_path, 'image_4/cropped_image_4-annotated_3c.png')]
+    image_path = '/home/fi5666wi/Documents/Prostate images/WSI-Annotations/image_cancer_3/cropped_image19PM18049-10_10x.png'  # '/usr/matematik/fi5666wi/Documents/Datasets/Eval'
 
-    result = []
-    targets = []
-    dice_scores = np.zeros((len(image_paths), config.num_classes))
-    conf = np.zeros((config.num_classes, config.num_classes))
-    for i in range(len(image_paths)):
-        prostate_image = imread(image_paths[i])
-        hsv_image = hsv_transformation(prostate_image)
-        gt_image = cv2.imread(gt_paths[i])
+    prostate_image = imread(image_path)
+    hsv_image = hsv_transformation(prostate_image)
+    img_ds = get_tiles(hsv_image)
 
-        img_ds = get_tiles(hsv_image)
-        gt_ds = get_tiles(gt_image)
+    output = []
+    for idx in range(len(img_ds)):
+        img = img_ds[idx]
+        pred = predict(img, model, preprocess, postprocess, device)
+        output.append(pred)
 
-        # Compute prediction
-        # predict the segmentation maps
-        output = []
-        loss_values = []
-        # For each patch: make predicition
-        for idx in range(len(img_ds)):
-            img = img_ds[idx]
-            target = colors_to_labels(gt_ds[idx])
-            hot = np.expand_dims(one_hot_target(target), axis=0)
-            pred = predict(img, model, preprocess, postprocess, device)
-            output.append(pred)
-        # loss_values.append(test_loss_function(pred, hot).cpu()) # loss_fn=MaxDiceLoss(labels=np.array([0, 1, 2, 3]))).cpu())
-        # loss_values.append(test_loss_function(model_output, target, loss_fn=torch.nn.CrossEntropyLoss()).cpu())
+    res = tiling(np.array(output), prostate_image.shape[:-1])
+    res = ind2segment(res.astype(np.uint8))
 
-        # cv2.imshow('Patch ' + str(idx), seg)
-        # cv2.waitKey(1000)
-        # cv2.destroyAllWindows()
-        label_target = colors_to_labels(gt_image)
-        res = tiling(np.array(output), prostate_image.shape[:-1])
-        dsc = dice(res, label_target)
-        res = ind2segment(res.astype(np.uint8))
-        print('Dice scores {}: '.format(i+1))
-        for j, name in enumerate(color_dict):
-            print(name + ": %.3f" % dsc[j])
-        print('Mean DSC: ' + str(np.mean(dsc)))
-        result.append(res)
-        targets.append(gt_image)
-        dice_scores[i, :] = dsc
-
-        # Confusion matrix
-        label_res = colors_to_labels(res)
-        conf = conf + confusion_matrix(label_target.flatten(), label_res.flatten())
-
-    for k in range(len(result)):
-        res = cv2.resize(result[k], dsize=None, fx=0.5, fy=0.5)
-        tar = cv2.resize(targets[k], dsize=None, fx=0.5, fy=0.5)
-        cv2.imshow('Final result {}'.format(k+1), res)
-        cv2.imshow('Target {}'.format(k+1), tar)
+    s_f = 1000/prostate_image.shape[0]
+    disp = cv2.resize(res, dsize=None, fx=s_f, fy=s_f)
+    orig = cv2.resize(prostate_image, dsize=None, fx=s_f, fy=s_f)
+    hsv = cv2.resize(hsv_image, dsize=None, fx=s_f, fy=s_f)
+    cv2.imshow('Final result', disp)
+    cv2.imshow('Original', cv2.cvtColor(orig, cv2.COLOR_RGB2BGR))
+    cv2.imshow('HSV', cv2.cvtColor(hsv, cv2.COLOR_RGB2BGR))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
-    print('Mean Dice Scores: ')
-    for j, name in enumerate(color_dict):
-        print(name + ": %.3f" % np.mean(dice_scores[:, j]))
-    print('Total Non-bg Mean DSC: ' + str(np.mean(dice_scores[:, 1:])))
-    # print('Mean loss value:')
-    # print(np.mean(np.array(loss_values)))
-
-    print('Confusion matrix')
-    conf_sums = np.sum(conf, axis=1)
-    conf = conf/conf_sums[:, np.newaxis]
-    conf = np.around(conf, decimals=3)
-    conf_table = PrettyTable()
-    conf_table.add_column(" ", [name for name in color_dict])
-    for i, name in enumerate(color_dict):
-        conf_table.add_column(name, conf[:, i])
-    print(conf_table)
-
 
     print('End')
     # savepath = os.path.join(eval_path, 'segmented_image_' + str(datetime.date.today()) + '.png')

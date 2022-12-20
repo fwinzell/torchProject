@@ -4,16 +4,22 @@ import random
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from skimage.io import imread
-from .distortion import random_crop_and_resize, color_distortion, gaussian_blur
+from hu_clr.datasets.two_dim.distortion import random_crop_and_resize, color_distortion, gaussian_blur
+
+import cv2
+from torchvision import transforms
+from hu_clr.datasets.transformations import *
 
 
 def load_img_paths(base_dir, val_split=0.1):
     input_img_paths = []
 
-    for k, folder in enumerate(os.listdir(base_dir)):
-        img_dir = os.path.join(base_dir, folder, 'Patches')
+    for k, file in enumerate(os.listdir(base_dir)):
+        img_dir = os.path.join(base_dir, file, 'Patches')
+        if not os.path.isdir(img_dir):
+            img_dir = os.path.join(base_dir, file)
 
         this_input_paths = sorted([
             os.path.join(img_dir, fname)
@@ -101,24 +107,23 @@ class ProstateDataset(Dataset):
             if self.transform is not None:
                 image = self.transform(image)
 
-            # Typecasting
-            image = torch.from_numpy(image).type(self.input_dtype)
+            image = torch.from_numpy(image)
 
             sample_1, _ = self._augmentation_1(image)
             sample_2 = self._augmentation_2(image)
 
-            return sample_1, sample_2
+            return sample_1.type(self.input_dtype), sample_2.type(self.input_dtype)
         elif self.mode == 'local':
             if self.transform is not None:
                 image = self.transform(image)
 
             # Typecasting
-            image = torch.from_numpy(image).type(self.input_dtype)
+            image = torch.from_numpy(image)
 
             sample = self._augmentation_1(image)
             sample = self._augmentation_2(sample)
 
-            return sample
+            return sample.type(self.input_dtype)
         elif self.mode == 'sup':
             target = imread(self.target_paths[index])
 
@@ -126,13 +131,12 @@ class ProstateDataset(Dataset):
                 image, target = self.transform(image, target)
 
             # Typecasting
-            image, target = torch.from_numpy(image).type(self.input_dtype), torch.from_numpy(target).type(
-                self.target_dtype)
+            image, target = torch.from_numpy(image), torch.from_numpy(target)
 
             sample = self._augmentation_1(image)
             sample = self._augmentation_2(sample)
 
-            return sample, target
+            return sample.type(self.input_dtype), target.type(self.target_dtype)
         elif self.mode == 'seg':
             target = imread(self.target_paths[index])
 
@@ -140,11 +144,48 @@ class ProstateDataset(Dataset):
                 image, target = self.transform(image, target)
 
             # Typecasting
-            image, target = torch.from_numpy(image).type(self.input_dtype), torch.from_numpy(target).type(
-                self.target_dtype)
+            image, target = torch.from_numpy(image), torch.from_numpy(target)
 
-            return image, target
+            return image.type(self.input_dtype), target.type(self.target_dtype)
         else:
             raise NotImplementedError('invalid mode')
 
 
+def test_augmentations():
+    base_dir = "/home/fi5666wi/Documents/Prostate images/train_data_with_gt/gt2_256" # "C:\\Users\\fi5666wi\\Documents\\Prostate images\\Datasets\\small_set"
+    img_dir = os.path.join(base_dir, 'Patches')
+    this_input_paths = sorted([
+        os.path.join(img_dir, fname)
+        for fname in os.listdir(img_dir)
+        if fname.endswith(".png")
+    ])
+    input_img_paths = this_input_paths[50:60]
+
+    transform = ComposeSingle([
+        FunctionWrapperSingle(np.moveaxis, source=-1, destination=0)
+    ])
+
+    dataset = ProstateDataset(input_img_paths, transform=transform)
+    loader = DataLoader(dataset, batch_size=1)
+
+    for f1, f2 in loader:
+        f1 = f1.cpu().numpy()
+        f2 = f2.cpu().numpy()
+        f1 = np.moveaxis(f1.squeeze(), source=0, destination=-1)
+        f2 = np.moveaxis(f2.squeeze(), source=0, destination=-1)
+        f1 = cast(f1)
+        f2 = cast(f2)
+        cv2.imshow("image_1", f1)
+        cv2.imshow("image_2", f2)
+        cv2.waitKey(1000)
+
+
+def cast(data):
+    img = data/np.amax(data)
+    img = img*255
+    return np.uint8(img)
+
+
+if __name__ == "__main__":
+    print("try to run me")
+    test_augmentations()

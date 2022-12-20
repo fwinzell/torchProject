@@ -49,16 +49,16 @@ if __name__ == "__main__":
         mask = cv2.imread(os.path.join(masks, mask_path))
         torch_image = torch.tensor(np.moveaxis(image, source=-1, destination=0))
         torch_mask = torch.tensor(np.moveaxis(mask, source=-1, destination=0))
-        distorted, new_mask = random_crop_and_resize(torch_image, torch_mask)
+        #distorted, new_mask = random_crop_and_resize(torch_image, torch_mask)
 
-        distorted = gaussian_blur(distorted, prob=1.0)
+        distorted = color_distortion(torch_image) # gaussian_blur(distorted, prob=1.0)
         distorted = distorted.numpy().astype('uint8')
         distorted = np.moveaxis(distorted, source=0, destination=-1)
 
-        new_mask = new_mask.numpy().astype('uint8')
-        new_mask = np.moveaxis(new_mask, source=0, destination=-1)
+        #new_mask = new_mask.numpy().astype('uint8')
+        #new_mask = np.moveaxis(new_mask, source=0, destination=-1)
 
         cv2.imshow('original', image)
         cv2.imshow('distorted', distorted)
-        cv2.imshow('new mask', new_mask/4)
+        #cv2.imshow('new mask', new_mask/4)
         cv2.waitKey(2000)

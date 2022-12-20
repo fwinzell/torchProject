@@ -1,28 +1,48 @@
 import torch
-from unet_model import UNet
 import os
 import numpy as np
 import argparse
 import cv2
 import math
-from transformations import normalize_01, re_normalize
+
+from prostate_clr.models import Unet
+import torch.nn.functional as F
+import datetime
+from unet.transformations import normalize_01, re_normalize
+from unet.losses import GeneralizedDiceLoss
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_classes", type=int, default=3)
-parser.add_argument("--input_dim", nargs=3, type=int, default=[256,256,3])
+parser.add_argument("--num_classes", type=int, default=4)
+parser.add_argument("--input_dim", nargs=3, type=int, default=[256, 256, 3])
+parser.add_argument("--input_shape", nargs=3, type=int, default=[3, 256, 256])
 parser.add_argument("--depth", type=int, default=4)
-parser.add_argument("--filters", type=int, default=64)
-parser.add_argument("--model_name",
-            default='/home/fi5666wi/Documents/Python/saved_models/unet_model_2022-06-23')
+parser.add_argument("--start_filters", type=int, default=64)
+parser.add_argument("--model_path", default='/home/fi5666wi/Documents/Python/saved_models/prostate_clr/unet/histnorm_base_2'
+                            '/unet_best_4_model.pth')
+parser.add_argument("--no_of_pt_decoder_blocks", type=int, default=3)
 
 config = parser.parse_args()
-color_dict = {
-    'Background': [255, 255, 255],
-    'Stroma': [255, 255, 0],
-    'Cytoplasm': [255, 0, 0],
-    'Nuclei': [255, 0, 255],
-    'Other': [0, 0, 0]
-}
+if config.num_classes == 3:
+    color_dict = {
+        'Background': [255, 255, 255],
+        'EC + Stroma': [255, 0, 0],
+        'Nuclei': [255, 0, 255]
+    }
+elif config.num_classes == 5:
+    color_dict = {
+        'Background': [255, 255, 255],
+        'Stroma': [255, 255, 0],
+        'Cytoplasm': [255, 0, 0],
+        'Nuclei': [255, 0, 255],
+        'Border': [0, 0, 0]
+    }
+else:
+    color_dict = {
+        'Background': [255, 255, 255],
+        'Stroma': [255, 255, 0],
+        'Cytoplasm': [255, 0, 0],
+        'Nuclei': [255, 0, 255]
+    }
 
 
 # preprocess function
@@ -39,7 +59,7 @@ def postprocess(img: torch.tensor):
     img = torch.argmax(img, dim=1)  # perform argmax to generate 1 channel
     img = img.cpu().numpy()  # send to cpu and transform to numpy.ndarray
     img = np.squeeze(img)  # remove batch dim and channel dim -> [H, W]
-    #img = re_normalize(img)  # scale it to the range [0-255]
+    # img = re_normalize(img)  # scale it to the range [0-255]
     img = ind2segment(img)
     return img
 
@@ -155,7 +175,7 @@ def image_to_patches(image, size=256, overlap=10):
 def patches_to_image(ds, image_size, overlap=10):
     image = np.zeros(shape=image_size)
     sz = ds.shape[1]
-    step = sz-overlap
+    step = sz - overlap
     nbr_xpatches = math.ceil(image_size[1] / step)
     nbr_ypatches = math.ceil(image_size[0] / step)
     ycor = 0
@@ -174,6 +194,56 @@ def patches_to_image(ds, image_size, overlap=10):
 
     return image
 
+def get_tiles(image, tile_sz=224, patch_sz=256):
+    pad = int((patch_sz - tile_sz) / 2)
+    #torch_img = torch.tensor((np.moveaxis(img, source=-1, destination=0)))
+    padded = np.pad(image, pad_width=((pad, pad), (pad, pad), (0, 0)), mode='reflect')
+
+    (ydim, xdim) = padded.shape[:2]
+    nbr_xpatches = math.ceil(xdim / tile_sz)
+    nbr_ypatches = math.ceil(ydim / tile_sz)
+
+    tiles = np.empty(shape=(nbr_xpatches * nbr_ypatches, patch_sz, patch_sz, 3))
+    count = 0
+    coords = []
+    ycor = 0
+    for i in range(nbr_ypatches):
+        xcor = 0
+        for j in range(nbr_xpatches):
+            patch = padded[ycor:ycor + patch_sz, xcor:xcor + patch_sz, :]
+            tiles[count] = patch
+            coords.append([ycor+pad, xcor+pad])
+            count += 1
+            xcor = xcor + tile_sz
+            if xcor > xdim - patch_sz:
+                xcor = xdim - patch_sz
+        ycor = ycor + tile_sz
+        if ycor > ydim - patch_sz:
+            ycor = ydim - patch_sz
+
+    return tiles
+
+
+def tiling(tiles, image_shape, tile_sz=224, patch_sz=256):
+    image = np.zeros(shape=image_shape)
+    pad = int((patch_sz - tile_sz)/ 2)
+    nbr_xpatches = math.ceil(image_shape[1] / tile_sz)
+    nbr_ypatches = math.ceil(image_shape[0] / tile_sz)
+    ycor = 0
+    count = 0
+    for i in range(nbr_ypatches):
+        xcor = 0
+        for j in range(nbr_xpatches):
+            image[ycor:ycor + tile_sz, xcor:xcor + tile_sz] = tiles[count, pad:pad + tile_sz, pad:pad + tile_sz]
+            count += 1
+            xcor = xcor + tile_sz
+            if xcor > image_shape[1] - tile_sz:
+                xcor = image_shape[1] - tile_sz
+        ycor = ycor + tile_sz
+        if ycor > image_shape[0] - tile_sz:
+            ycor = image_shape[0] - tile_sz
+
+    return image
 
 if __name__ == '__main__':
     # device
@@ -183,18 +253,18 @@ if __name__ == '__main__':
         device = torch.device('cpu')
 
     # model
-    model = UNet(config).to(device)
-    model_weights = torch.load(os.path.join(config.model_name, 'model.pt'))
-    model.load_state_dict(model_weights)
+    model = Unet(config, load_pt_weights=False).to(device)
+    model_weights = torch.load(config.model_path)
+    model.load_state_dict(model_weights, strict=True)
 
     # Image to segment
-    eval_path = os.path.join('/usr/matematik/fi5666wi/Documents/Datasets/Eval')
-    #eval_path = os.path.join('/home/fi5666wi/Documents/Prostate images/2019-01-24')
-    image_path = os.path.join(eval_path, 'image_0_10x.png') #'11PM 30667-1_10x.png')
+    eval_path = os.path.join('/home/fi5666wi/Documents/Prostate images/2019-01-23')
+    # eval_path = os.path.join('/home/fi5666wi/Documents/Prostate images/2019-01-24')
+    image_path = os.path.join(eval_path, '07PM 05156-1_10x.png')  # '11PM 30667-1_10x.png')
     prostate_image = cv2.imread(image_path)
 
     image_to_segment = select_image_to_segment(prostate_image)
-    patches = image_to_patches(image_to_segment)
+    patches = get_tiles(image_to_segment)
 
     # Compute prediction
     # predict the segmentation maps
@@ -205,11 +275,9 @@ if __name__ == '__main__':
         cv2.imshow('Orginial', patches[j])
         cv2.waitKey(1000)
     """
-    #cv2.destroyAllWindows()
-    res = patches_to_image(np.array(output), image_to_segment.shape)
+    # cv2.destroyAllWindows()
+    res = tiling(np.array(output), image_to_segment.shape)
     cv2.imshow('Final result', res)
     cv2.imshow('Original', image_to_segment)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
-

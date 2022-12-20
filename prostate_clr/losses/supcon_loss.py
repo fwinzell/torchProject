@@ -4,12 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from util import get_gpu_memory_map
-
 
 class SupConLoss(nn.Module):
     """modified supcon loss for segmentation application, the main difference is that the label for different view
     could be different if after spatial transformation"""
+
     def __init__(self, temperature=0.07, contrast_mode='all',
                  base_temperature=0.07):
         super(SupConLoss, self).__init__()
@@ -47,7 +46,7 @@ class SupConLoss(nn.Module):
             non_bg_bool = ~ bg_bool
             non_bg_bool = non_bg_bool.int().to(device)
         else:
-            mask = torch.eye(logits.shape[0]//contrast_count).float().to(device)
+            mask = torch.eye(logits.shape[0] // contrast_count).float().to(device)
             mask = mask.repeat(contrast_count, contrast_count)
             # print(mask.shape)
 
@@ -68,13 +67,14 @@ class SupConLoss(nn.Module):
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
 
         # loss
-        loss = - mean_log_prob_pos
+        loss = - torch.nan_to_num(mean_log_prob_pos)
         # loss = loss.view(anchor_count, batch_size).mean()
         if labels is not None:
             # only consider the contrastive loss for non-background pixel
             loss = (loss * non_bg_bool).sum() / (non_bg_bool.sum())
         else:
             loss = loss.mean()
+
         return loss
 
 
@@ -143,7 +143,7 @@ class SupConSegLoss(nn.Module):
                     for i in range(img_size):
                         # print("before ith iteration, the consumption memory is:", torch.cuda.memory_allocated() / 1024**2)
                         for j in range(img_size):
-                            x = tmp_feature[n:n+1, :, i:i + 1, j:j + 1]  # [c, 1, 1, 1]
+                            x = tmp_feature[n:n + 1, :, i:i + 1, j:j + 1]  # [c, 1, 1, 1]
                             cos_dst = F.conv2d(tmp_feature, x)  # [2b, 1, 512, 512]
                             cos_dst = torch.div(cos_dst.squeeze(dim=1), self.temp)
                             # print("cos_dst:", cos_dst.max(), cos_dst.min())
@@ -165,9 +165,9 @@ class SupConSegLoss(nn.Module):
             return loss
 
 
-class LocalConLoss(nn.Module):
+class StrideConLoss(nn.Module):
     def __init__(self, temperature=0.7, stride=4):
-        super(LocalConLoss, self).__init__()
+        super(StrideConLoss, self).__init__()
         self.temp = temperature
         self.device = (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
         self.supconloss = SupConLoss(temperature=self.temp)
@@ -175,7 +175,8 @@ class LocalConLoss(nn.Module):
 
     def forward(self, features, labels=None):
         # input features: [bsz, num_view, c, h ,w], h & w are the image size
-        features = features[:, :, :, ::self.stride, ::self.stride]  # resample feature maps to reduce memory consumption and running time
+        features = features[:, :, :, ::self.stride,
+                   ::self.stride]  # resample feature maps to reduce memory consumption and running time
         shape = features.shape
         img_size = shape[-1]
         if labels is not None:
@@ -185,78 +186,12 @@ class LocalConLoss(nn.Module):
                 return loss
 
             loss = self.supconloss(features, labels)
-            """
-            f1, f2 = torch.split(features, [1, 1], dim=1)
-            features = torch.cat([f1.squeeze(1), f2.squeeze(1)], dim=0)
-            l1, l2 = torch.split(labels, [1, 1], dim=1)
-            labels = torch.cat([l1.squeeze(1), l2.squeeze(1)], dim=0)
-            bsz = features.shape[0]
-            loss = []
-            for b in range(bsz):
-                # print("Iteration index:", idx, "Batch_size:", b)
-                for i in range(img_size):
-                    # print("before ith iteration, the consumption memory is:", torch.cuda.memory_allocated() / 1024**2)
-                    for j in range(img_size):
-                        x = features[b:b + 1, :, i:i + 1, j:j + 1]  # [c, 1, 1, 1]
-                        x_label = labels[b, i, j] + 1  # avoid cases when label=0
-                        if x_label == 1:  # ignore background
-                            continue
-                        cos_dst = F.conv2d(features, x)  # [2b, 1, 512, 512]
-                        cos_dst = torch.div(cos_dst.squeeze(dim=1), self.temp)
-                        self_contrast_dst = torch.div((x * x).sum(), self.temp)
 
-                        mask = labels + 1
-                        mask[mask != x_label] = 0
-                        mask = torch.div(mask, x_label)
-                        numerator = (mask * cos_dst).sum() - self_contrast_dst
-                        denominator = torch.exp(cos_dst).sum() - torch.exp(self_contrast_dst)
-                        # print("denominator:", denominator.item())
-                        # print("numerator:", numerator.max(), numerator.min())
-                        loss_tmp = torch.log(denominator) - numerator / (mask.sum() - 1)
-                        if loss_tmp != loss_tmp:
-                            print(numerator.item(), denominator.item())
-
-                        loss.append(loss_tmp)
-
-            if len(loss) == 0:
-                loss = torch.tensor(0).float().to(self.device)
-                return loss
-            loss = torch.stack(loss).mean()
-            """
             return loss
         else:
             bsz = features.shape[0]
             loss = self.supconloss(features)
 
-            """
-            loss = []
-            for b in range(bsz):
-                # print("Iteration index:", idx, "Batch_size:", b)
-                tmp_feature = features[b]
-                for n in range(tmp_feature.shape[0]):
-                    for i in range(img_size):
-                        # print("before ith iteration, the consumption memory is:", torch.cuda.memory_allocated() / 1024**2)
-                        for j in range(img_size):
-                            x = tmp_feature[n:n+1, :, i:i + 1, j:j + 1]  # [c, 1, 1, 1]
-                            cos_dst = F.conv2d(tmp_feature, x)  # [2b, 1, 512, 512]
-                            cos_dst = torch.div(cos_dst.squeeze(dim=1), self.temp)
-                            # print("cos_dst:", cos_dst.max(), cos_dst.min())
-                            self_contrast_dst = torch.div((x * x).sum(), self.temp)
-
-                            mask = torch.zeros((tmp_feature.shape[0], tmp_feature.shape[2], tmp_feature.shape[3]),
-                                               device=self.device)
-                            mask[0:tmp_feature.shape[0], i, j] = 1
-                            numerator = (mask * cos_dst).sum() - self_contrast_dst
-                            denominator = torch.exp(cos_dst).sum() - torch.exp(self_contrast_dst)
-                            # print("numerator:", numerator.max(), numerator.min())
-                            loss_tmp = torch.log(denominator) - numerator / (mask.sum() - 1)
-                            if loss_tmp != loss_tmp:
-                                print(numerator.item(), denominator.item())
-
-                            loss.append(loss_tmp)
-
-            loss = torch.stack(loss).mean()
-            """
             return loss
 
 
@@ -278,10 +213,10 @@ class BlockConLoss(nn.Module):
                 # print("Iteration index:", idx, "Batch_size:", b)
                 for j in range(div_num):
                     # print("before ith iteration, the consumption memory is:", torch.cuda.memory_allocated() / 1024**2)
-                    block_features = features[:, :, :, i*self.block_size:(i+1)*self.block_size,
-                                  j*self.block_size:(j+1)*self.block_size]
-                    block_labels = labels[:,:, i*self.block_size:(i+1)*self.block_size,
-                                  j*self.block_size:(j+1)*self.block_size]
+                    block_features = features[:, :, :, i * self.block_size:(i + 1) * self.block_size,
+                                     j * self.block_size:(j + 1) * self.block_size]
+                    block_labels = labels[:, :, i * self.block_size:(i + 1) * self.block_size,
+                                   j * self.block_size:(j + 1) * self.block_size]
 
                     if block_labels.sum() == 0:
                         continue
@@ -293,6 +228,7 @@ class BlockConLoss(nn.Module):
             if len(loss) == 0:
                 loss = torch.tensor(0).float().to(self.device)
                 return loss
+
             loss = torch.stack(loss).mean()
             return loss
 

@@ -1,7 +1,7 @@
 from typing import List, Callable, Tuple
 
 import numpy as np
-from sklearn.externals._pilutil import bytescale
+#from sklearn.externals._pilutil import bytescale
 from skimage.util import crop
 
 

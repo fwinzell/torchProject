@@ -251,7 +251,7 @@ class GlobalConUnet(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, input_channels=512, num_class=128):
+    def __init__(self, input_channels, num_class=128):
         super().__init__()
 
         self.gap = nn.AdaptiveAvgPool2d(1)

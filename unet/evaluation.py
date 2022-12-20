@@ -10,7 +10,7 @@ from transformations import normalize_01, re_normalize
 from losses import GeneralizedDiceLoss, MaxDiceLoss
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_classes", type=int, default=3)
+parser.add_argument("--num_classes", type=int, default=4)
 parser.add_argument("--input_dim", nargs=3, type=int, default=[256, 256, 3])
 parser.add_argument("--depth", type=int, default=4)
 parser.add_argument("--filters", type=int, default=64)

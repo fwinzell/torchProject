@@ -36,7 +36,7 @@ def dice_pytorch(outputs: torch.Tensor, labels: torch.Tensor, N_class):
         # dice[iter] = dice_temp
     #print(dice)
 
-    return dice  # Or thresholded.mean()
+    return dice.mean()  # Or thresholded.mean()
 
 def iou_pytorch(outputs: torch.Tensor, labels: torch.Tensor):
     # You can comment out this line if you are passing tensors of equal shape
