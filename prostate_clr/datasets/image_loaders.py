@@ -150,8 +150,8 @@ def hsv_map_augmentation(im, h, s, v):
     # 3) Multiply by factor
     mu = 2*np.tan(0.30*np.pi) #mean factor
     lambd = random.uniform(-h, h)
-    X = ((X - mu)*lambd) + mu
-    #X = X * lambd
+    #X = ((X - mu)*lambd) + mu
+    X = X * lambd
     # 4) Map to circle
     T = np.arctan(X / 2)/np.pi
     # 5) New hue channel

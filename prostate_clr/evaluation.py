@@ -25,7 +25,7 @@ parser.add_argument("--input_shape", nargs=3, type=int, default=[3, 256, 256])
 parser.add_argument("--depth", type=int, default=4)
 parser.add_argument("--start_filters", type=int, default=64)
 parser.add_argument("--model_path", type=str,
-                    default='/home/fi5666wi/Documents/Python/saved_models/prostate_clr/unet/2022-12-05_1'
+                    default='/home/fi5666wi/Documents/Python/saved_models/prostate_clr/unet/2022-11-30'
                             '/unet_best_4_model.pth')
 parser.add_argument("--no_of_pt_decoder_blocks", type=int, default=3)
 parser.add_argument("--imagenet", type=bool, default=False)
@@ -412,7 +412,7 @@ def evaluation(config, display):
 
 
 if __name__ == '__main__':
-    do_crossval = True
+    do_crossval = False
     if not do_crossval:
         scores = evaluation(config, display=True)
     else:
