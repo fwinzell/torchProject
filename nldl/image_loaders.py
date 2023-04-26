@@ -12,7 +12,6 @@ import math
 import cv2
 from torchvision import transforms
 from hu_clr.datasets.transformations import *
-from collections import Counter
 
 
 def rotate(image, angle):
@@ -255,16 +254,11 @@ class GleasonDataset(Dataset):
 
 
     def get_weights(self):
-        weights = torch.zeros(4)
-        num = self.__len__()
-        class_count = Counter(self.targets)
-        for j, label in enumerate(['benign', 'G3', 'G4', 'G5']):
-            weights[j] = num/class_count[label]
-        if self.mode == 'pca':
-            return torch.tensor([weights[0], torch.sum(weights[1:])])
-        else:
-            return weights
-
+        instances = torch.zeros(len(self.labels))
+        for y in self.targets:
+            instances[self.labels.index(y)] += 1
+        weights = torch.max(instances)/instances
+        return weights
 
     def __getitem__(self, index):
         # Generate one sample of data

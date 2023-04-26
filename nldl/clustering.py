@@ -102,11 +102,11 @@ if __name__ == "__main__":
 
     patch_size = 299
 
-    dataset = GleasonDataset(trainsets[1:3], labels=labels, mode='pca', patch_size=patch_size)
+    dataset = GleasonDataset(trainsets[1:], labels=labels, mode='pca', patch_size=patch_size)
     dataloader = DataLoader(dataset, batch_size=10, drop_last=False)
 
     N = 512
-    max_bat = 10
+    max_bat = 100
     max_pat = min(max_bat * dataloader.batch_size, len(dataloader.dataset))
     all_embeddings = np.zeros((max_pat, N))
     all_targets = np.zeros(max_pat)
@@ -143,7 +143,6 @@ if __name__ == "__main__":
     plt.figure(1)
     plt.title('t-SNE - prediction')
 
-    markers = ['x', 'o']
     # majority prediction between malignant and benign
     cmap = get_cmap(args.n_clusters, name='hsv')
     pred = np.zeros_like(all_targets)
@@ -159,17 +158,19 @@ if __name__ == "__main__":
 
         cluster = tsne[kmeans==k, :]
         for j in range(cluster.shape[0]):
-            plt.scatter(cluster[j,0], cluster[j,1], marker=markers[int(cluster_labels[j])], color=cmap(k))
+            if int(cluster_labels[j]) == 0:
+                plt.scatter(cluster[j,0], cluster[j,1], marker='x', color=cmap(k))
+            else:
+                plt.scatter(cluster[j, 0], cluster[j, 1], marker='o', color=cmap(k), facecolor='none', linewidths=1.5)
 
-    plt.legend(range(args.n_clusters))
     #plt.show()
 
     total_acc = accuracy_score(all_targets, pred)
     print('Total Accuracy: {}'.format(total_acc))
 
     # display some images from each cluster
-    """
-    w, h = 10, args.n_clusters
+
+    w, h = 6, args.n_clusters
     imfig = plt.figure(99, figsize=(w, h))
     pos = 1
     for k in range(args.n_clusters):
@@ -183,7 +184,6 @@ if __name__ == "__main__":
             plt.imshow(np.moveaxis(img.astype('uint8'), source=0, destination=-1))
             plt.axis('off')
             pos += 1
-    """
 
     plt.show()
 
